@@ -14,27 +14,26 @@ var triggerEnter = function (element, type) {
 Suites.push({
     name: 'VanillaJS-TodoMVC',
     url: 'todomvc/vanilla-examples/vanillajs/index.html',
-    prepare: function (runner, contentWindow, contentDocument) {
-        return runner.waitForElement('.new-todo').then(function (element) {
+    prepare: function (page) {
+        return page.waitForElement('.new-todo').then(function (element) {
             element.focus();
             return element;
         });
     },
     tests: [
-        new BenchmarkTestStep('Adding' + numberOfItemsToAdd + 'Items', function (newTodo, contentWindow, contentDocument) {
+        new BenchmarkTestStep('Adding' + numberOfItemsToAdd + 'Items', function (page) {
+            const newTodo = page.querySelector('.new-todo');
             for (var i = 0; i < numberOfItemsToAdd; i++) {
-                newTodo.value = 'Something to do ' + i;
-                newTodo.dispatchEvent(new Event('change'));
-                triggerEnter(newTodo, 'keypress');
+                newTodo.type('Something to do ' + i);
             }
         }),
-        new BenchmarkTestStep('CompletingAllItems', function (newTodo, contentWindow, contentDocument) {
-            var checkboxes = contentDocument.querySelectorAll('.toggle');
+        new BenchmarkTestStep('CompletingAllItems', function (page) {
+            var checkboxes = page.querySelectorAll('.toggle');
             for (var i = 0; i < checkboxes.length; i++)
                 checkboxes[i].click();
         }),
-        new BenchmarkTestStep('DeletingAllItems', function (newTodo, contentWindow, contentDocument) {
-            var deleteButtons = contentDocument.querySelectorAll('.destroy');
+        new BenchmarkTestStep('DeletingAllItems', function (page) {
+            var deleteButtons = page.querySelectorAll('.destroy');
             for (var i = 0; i < deleteButtons.length; i++)
                 deleteButtons[i].click();
         }),

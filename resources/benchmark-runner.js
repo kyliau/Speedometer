@@ -1,3 +1,154 @@
+const BATCH = true;
+
+class ElementHandle {
+    constructor(element) {
+        this.element = element;
+    }
+
+    click() {
+        this.element.click();
+    }
+
+    focus() {
+        this.element.focus();
+    }
+
+    type(text) {
+        this.element.value = text;
+        this.element.dispatchEvent(new Event('change'));
+        this.element.dispatchEvent(new KeyboardEvent('keypress', {
+            keyCode: 13,
+            key: 'Enter',
+            bubbles: true
+        }));
+    }
+}
+
+function createPage(contentWindow) {
+    return BATCH ? new PageBatch() : new Page(contentWindow);
+}
+
+class ElementHandleBatch {
+    static id = 0;
+
+    constructor(requests, all) {
+        this.requests = requests;
+        this.key = ElementHandleBatch.id++;
+        this.all = all;
+    }
+
+    click() {
+        this.requests.push({
+            name: 'click',
+            key: this.key,
+            all: this.all,
+        });
+    }
+
+    focus() {
+        this.requests.push({
+            name: 'focus',
+            key: this.key,
+            all: this.all,
+        });
+    }
+
+    type(text) {
+        this.requests.push({
+            name: 'type',
+            key: this.key,
+            all: this.all,
+            text,
+        });
+    }
+}
+
+class PageBatch {
+    constructor() {
+        this.requests = [];
+    }
+
+    async waitForElement(selector) {
+        const element = new ElementHandleBatch(this.requests, false);
+        this.requests.push({
+            name: 'waitForElement',
+            selector,
+            key: element.key,
+        });
+        return element;
+    }
+
+    querySelector(selector) {
+        const element = new ElementHandleBatch(this.requests, false);
+        this.requests.push({
+            name: 'querySelector',
+            selector,
+            key: element.key,
+        });
+        return element;
+    }
+
+    querySelectorAll(selector) {
+        const element = new ElementHandleBatch(this.requests, true);
+        this.requests.push({
+            name: 'querySelectorAll',
+            selector,
+            key: element.key,
+        });
+        return [element];
+    }
+
+    getElementById(id) {
+        const element = new ElementHandleBatch(this.requests, false);
+        this.requests.push({
+            name: 'getElementById',
+            id,
+            key: element.key,
+        });
+        return element;
+    }
+}
+
+class Page {
+    constructor(contentWindow) {
+        this.contentWindow = contentWindow;
+        this.contentDocument = contentWindow.document;
+    }
+
+    waitForElement(selector) {
+        return new Promise((resolve) => {
+
+            const resolveIfReady = () => {
+                var element = this.querySelector(selector);
+                if (element) {
+                    window.requestAnimationFrame(function () {
+                        return resolve(element);
+                    });
+                    return;
+                }
+                setTimeout(resolveIfReady, 50);
+            };
+
+            resolveIfReady();
+        });
+    }
+
+    querySelector(selector) {
+        const element = this.contentDocument.querySelector(selector);
+        return element ? new ElementHandle(element) : null;
+    }
+
+    querySelectorAll(selector) {
+        const elements = [...this.contentDocument.querySelectorAll(selector)];
+        return elements.map(element => new ElementHandle(element));
+    }
+
+    getElementById(id) {
+        const element = this.contentDocument.getElementById(id);
+        return element ? new ElementHandle(element) : null;
+    }
+}
+
 function BenchmarkTestStep(testName, testFunction) {
     this.name = testName;
     this.run = testFunction;
@@ -5,7 +156,6 @@ function BenchmarkTestStep(testName, testFunction) {
 
 function BenchmarkRunner(suites, client) {
     this._suites = suites;
-    this._prepareReturnValue = null;
     this._client = client;
 }
 
@@ -61,14 +211,13 @@ BenchmarkRunner.prototype._appendFrame = function (src) {
     return frame;
 }
 
-BenchmarkRunner.prototype._writeMark = function(name) {
+BenchmarkRunner.prototype._writeMark = function (name) {
     if (window.performance && window.performance.mark)
         window.performance.mark(name);
 }
 
 // This function ought be as simple as possible. Don't even use Promise.
-BenchmarkRunner.prototype._runTest = function(suite, test, prepareReturnValue, callback)
-{
+BenchmarkRunner.prototype._runTest = function (suite, test, prepareReturnValue, callback) {
     var self = this;
     var now = window.performance && window.performance.now ? function () { return window.performance.now(); } : Date.now;
 
@@ -77,7 +226,9 @@ BenchmarkRunner.prototype._runTest = function(suite, test, prepareReturnValue, c
 
     self._writeMark(suite.name + '.' + test.name + '-start');
     var startTime = now();
-    test.run(prepareReturnValue, contentWindow, contentDocument);
+    const page = createPage(contentWindow);
+    test.run(page);
+    page.requests && console.info("runTest - " + test.name, page.requests);
     var endTime = now();
     self._writeMark(suite.name + '.' + test.name + '-sync-end');
 
@@ -104,7 +255,7 @@ function BenchmarkState(suites) {
     this.next();
 }
 
-BenchmarkState.prototype.currentSuite = function() {
+BenchmarkState.prototype.currentSuite = function () {
     return this._suites[this._suiteIndex];
 }
 
@@ -132,11 +283,15 @@ BenchmarkState.prototype.isFirstTest = function () {
     return !this._testIndex;
 }
 
-BenchmarkState.prototype.prepareCurrentSuite = function (runner, frame) {
+BenchmarkState.prototype.prepareCurrentSuite = function (frame) {
     const suite = this.currentSuite();
     return new Promise((resolve) => {
         frame.onload = function () {
-            suite.prepare(runner, frame.contentWindow, frame.contentDocument).then(resolve);
+            const page = createPage(frame.contentWindow);
+            suite.prepare(page).then(() => {
+                page.requests && console.info("prepare", page.requests);
+                resolve();
+            });
         }
         frame.src = 'resources/' + suite.url;
     });
@@ -145,7 +300,7 @@ BenchmarkState.prototype.prepareCurrentSuite = function (runner, frame) {
 BenchmarkRunner.prototype.step = function (state) {
     if (!state) {
         state = new BenchmarkState(this._suites);
-        this._measuredValues = {tests: {}, total: 0, mean: NaN, geomean: NaN, score: NaN};
+        this._measuredValues = { tests: {}, total: 0, mean: NaN, geomean: NaN, score: NaN };
     }
 
     var suite = state.currentSuite();
@@ -157,8 +312,7 @@ BenchmarkRunner.prototype.step = function (state) {
     if (state.isFirstTest()) {
         this._removeFrame();
         var self = this;
-        return state.prepareCurrentSuite(this, this._appendFrame()).then(function (prepareReturnValue) {
-            self._prepareReturnValue = prepareReturnValue;
+        return state.prepareCurrentSuite(this._appendFrame()).then(function (prepareReturnValue) {
             return self._runTestAndRecordResults(state);
         });
     }
@@ -202,10 +356,10 @@ BenchmarkRunner.prototype._runTestAndRecordResults = function (state) {
 
         setTimeout(() => {
             this._runTest(suite, test, this._prepareReturnValue, (syncTime, asyncTime) => {
-                const suiteResults = this._measuredValues.tests[suite.name] || {tests:{}, total: 0};
+                const suiteResults = this._measuredValues.tests[suite.name] || { tests: {}, total: 0 };
                 const total = syncTime + asyncTime;
                 this._measuredValues.tests[suite.name] = suiteResults;
-                suiteResults.tests[test.name] = {tests: {'Sync': syncTime, 'Async': asyncTime}, total: total};
+                suiteResults.tests[test.name] = { tests: { 'Sync': syncTime, 'Async': asyncTime }, total: total };
                 suiteResults.total += total;
 
                 if (this._client && this._client.didRunTest)
