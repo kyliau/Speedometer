@@ -22,7 +22,7 @@ jobs:
       with:
         # See supported Node.js release schedule at https://nodejs.org/en/about/releases/
         node-version: ${{ matrix.node }}
-        cache: 'yarn'
-    - run: yarn ci
-    - run: yarn run build --if-present
-    - run: yarn test
+        cache: 'npm'
+    - run: npm ci
+    - run: npm run build --if-present
+    - run: npm test
