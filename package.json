@@ -1,0 +1,22 @@
+{
+  "name": "speedometer",
+  "version": "3.0.0",
+  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kyliau/Speedometer"
+  },
+  "license": "BSD-2-Clause",
+  "devDependencies": {
+  },
+  "description": "Speedometer is a benchmark for web browsers that measures Web application responsiveness by timing simulated user interactions on various workloads.",
+  "bugs": {
+    "url": "https://github.com/kyliau/Speedometer/issues"
+  },
+  "homepage": "https://github.com/kyliau/Speedometer#readme",
+  "dependencies": {
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  }
+}
